@@ -1,0 +1,93 @@
+version: "3.7"
+
+services:
+  redis:
+    image: redis
+    container_name: redis
+    expose:
+      - 6379
+    volumes:
+      - redis:/data
+
+
+  movie_api_elastic:
+    image: elasticsearch:7.9.1
+    container_name: fast_api_elastic
+    restart: on-failure
+    environment:
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - discovery.type=single-node
+      - logger.level=WARN
+    volumes:
+      - elastic_data:/elastic_data
+    expose:
+      - 9200
+
+  etl_postgres:
+    build: './movie_api_postgres'
+    container_name: etl_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${ETL_POSTGRES_USER}
+      POSTGRES_PASSWORD: ${ETL_POSTGRES_PASSWORD}
+      POSTGRES_DB: ${ETL_POSTGRES_NAME}
+    volumes:
+      - etl_postgres_data:/var/lib/postgresql/data/
+    ports:
+      - "5433:5432" # host:container
+
+  etl:
+    image: generalisimus/etl:tagname
+    container_name: etl
+    depends_on:
+      - movie_api_elastic
+      - etl_postgres
+    environment:
+      ETL_POSTGRES_NAME: ${ETL_POSTGRES_NAME}
+      ETL_POSTGRES_USER: ${ETL_POSTGRES_USER}
+      ETL_POSTGRES_PASSWORD: ${ETL_POSTGRES_PASSWORD}
+      ETL_POSTGRES_HOST: ${ETL_POSTGRES_HOST}
+      ETL_POSTGRES_PORT: ${ETL_POSTGRES_PORT}
+      ES_HOST: ${ES_HOST}
+      ES_PORT: ${ES_PORT}
+
+  movie_api:
+    image: generalisimus/movie_api:tagname
+    container_name: fast_api
+    depends_on:
+      - movie_api_elastic
+      - redis
+      - etl
+    restart: on-failure
+    environment:
+      FASTAPI_REDIS_HOST: ${FASTAPI_REDIS_HOST}
+      FASTAPI_REDIS_PORT: ${FASTAPI_REDIS_PORT}
+
+      ES_HOST: ${ES_HOST}
+      ES_PORT: ${ES_PORT}
+
+      AUTH_HOST: ${AUTH_HOST}
+      AUTH_PORT: ${AUTH_PORT}
+
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_TOKEN_LOCATION: ${JWT_TOKEN_LOCATION}
+      JWT_ALGORITHM: ${JWT_ALGORITHM}
+
+    volumes:
+      - ./src/:/app/
+    expose:
+      - 8001
+
+  app:
+    depends_on:
+      - redis
+    container_name: app
+    build:
+      context: .
+    expose:
+      - 8007
+
+volumes:
+  redis:
+  elastic_data:
+  etl_postgres_data:
